@@ -12,19 +12,21 @@ function Scope() {
 
     // Add a new watcher to this scopes internal list of watchers
     Scope.prototype.$watch = function(watchFn, listenerFn, valueEq) {
+        var self = this;
         var watcher = {
             watchFn: watchFn,
             listenerFn: listenerFn || function() {},
             valueEq: !!valueEq,
             last: initWatchVal
         };
-        this.$$watchers.push(watcher);
+        this.$$watchers.unshift(watcher);
         this.$$lastDirtyWatch = null;
 
         return function() {
             var index = self.$$watchers.indexOf(watcher);
             if (index >= 0){
                 self.$$watchers.splice(index, 1);
+                self.$$lastDirtyWatch = null;
             }
         };
     };
@@ -44,21 +46,24 @@ function Scope() {
     Scope.prototype.$$digestOnce = function() {
         var self = this;
         var newValue, oldValue, dirty;
-        _.forEach(this.$$watchers, function(watcher){
+        _.forEachRight(this.$$watchers, function(watcher){
             try {
-                newValue = watcher.watchFn(self);
-                oldValue = watcher.last;
-                if (!self.$$areEqual(newValue, oldValue, watcher.valueEq))
+                if (watcher)
                 {
-                    self.$$lastDirtyWatch = watcher;
-                    watcher.last = (watcher.valueEq ? _.cloneDeep(newValue) : newValue);
-                    // The initWatchVal allows us to ensure the listener is called when a new watch is supposed to start with an undefined value.
-                    // Setting old value to new value here ensures we don't leak the reference to initWatchVal outside of scope
-                    watcher.listenerFn(newValue, (oldValue === initWatchVal ? newValue : oldValue), self);
-                    dirty = true;
-                }
-                else if (self.$$lastDirtyWatch === watcher) {
-                    return false;
+                    newValue = watcher.watchFn(self);
+                    oldValue = watcher.last;
+                    if (!self.$$areEqual(newValue, oldValue, watcher.valueEq))
+                    {
+                        self.$$lastDirtyWatch = watcher;
+                        watcher.last = (watcher.valueEq ? _.cloneDeep(newValue) : newValue);
+                        // The initWatchVal allows us to ensure the listener is called when a new watch is supposed to start with an undefined value.
+                        // Setting old value to new value here ensures we don't leak the reference to initWatchVal outside of scope
+                        watcher.listenerFn(newValue, (oldValue === initWatchVal ? newValue : oldValue), self);
+                        dirty = true;
+                    }
+                    else if (self.$$lastDirtyWatch === watcher) {
+                        return false;
+                    }
                 }
             }
             catch (ex) {
