@@ -6,6 +6,8 @@ function Scope() {
     // listener function, and the previous result of the watch function
     this.$$watchers = [];
     this.$$lastDirtyWatch = null;
+    this.$$asyncQueue = [];
+    this.$$phase = null;
 
     function initWatchVal() {}
     
@@ -35,12 +37,20 @@ function Scope() {
         var dirty;
         var ttl = 10; // stands for "Time to Live"
         this.$$lastDirtyWatch = null;
+        this.$beginPhase('$digest');
         do {
+            while(this.$$asyncQueue.length) {
+                var asyncTask = this.$$asyncQueue.shift();
+                asyncTask.scope.$eval(asyncTask.expression);
+            }
+
             dirty = this.$$digestOnce();
-            if (dirty && !(ttl--)) {
+            if ((dirty || this.$$asyncQueue.length) && !(ttl--)) {
+                this.$clearPhase();
                 throw '10 digest iterations reached';
             }
-        } while (dirty);
+        } while (dirty || this.$$asyncQueue.length);
+        this.$clearPhase();
     };
 
     Scope.prototype.$$digestOnce = function() {
@@ -81,6 +91,45 @@ function Scope() {
         else {
             return newValue === oldValue || (typeof newValue === 'number' && isNaN(newValue) && typeof oldValue === 'number' && isNaN(oldValue));
         }
+    };
+
+    Scope.prototype.$eval = function(expr, locals) {
+        return expr(this, locals);
+    };
+
+    Scope.prototype.$apply = function(expr) {
+        try {
+            this.$beginPhase('$apply');
+            this.$eval(expr);
+        }
+        finally {
+            this.$clearPhase();
+            this.$digest();
+        }
+    };
+
+    Scope.prototype.$evalAsync = function(expr) {
+        var self = this;
+        if (!self.$$phase && !self.$$asyncQueue.length) {
+            setTimeout(function() {
+                if (self.$$asyncQueue.length) {
+                    self.$digest();
+                }
+            }, 0);
+        }
+        this.$$asyncQueue.push({ scope: this, expression: expr }); // store the current scope because of scope inheritence
+    };
+
+    Scope.prototype.$beginPhase = function(phase) {
+        if (this.$$phase) {
+            throw this.$$phase + ' already in progress.';
+        }
+
+        this.$$phase = phase;
+    };
+
+    Scope.prototype.$clearPhase = function () {
+        this.$$phase = null;
     };
 }
 
